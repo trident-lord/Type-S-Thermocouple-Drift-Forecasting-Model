@@ -16,7 +16,7 @@ import queue
 import os
 import math
 import glob
-from dateutil import parser
+from dateutil import parser # Import dateutil parser
 
 # --- ITS-90 Conversion (PRT - Platinum Resistance Thermometer) ---
 def its90_temperature(R, Rtpw=100.0):
@@ -259,7 +259,8 @@ start_button = ttk.Button(btn_frame, text="Start Logging", command=lambda: start
 start_button.pack(side="left", padx=2)
 stop_button = ttk.Button(btn_frame, text="Stop Logging", command=lambda: stop_logging(), state="disabled")
 stop_button.pack(side="left", padx=2)
-calibrate_button = ttk.Button(btn_frame, text="Calibrate Time", command=lambda: calibrate_time())
+# FIX: Set calibrate_button to disabled initially
+calibrate_button = ttk.Button(btn_frame, text="Calibrate Time", command=lambda: calibrate_time(), state="disabled") 
 calibrate_button.pack(side="left", padx=2)
 
 settings_frame = ttk.LabelFrame(left_panel, text="Settings", padding=10)
@@ -358,7 +359,7 @@ def serial_reader_thread():
         send_scpi_command(f"MEAS:PER {meas_period_var.get().replace('s','').replace('min','m').replace('hr','h')}")
         for ch in range(1, 5):
             if channel_configs[ch]['enabled'].get():
-                send_unit_command(ch)
+                send_unit_command(ch) # Ensure units are set on startup for enabled channels
     except serial.SerialException as e:
         status_var.set(f"Connection failed: {e}")
         stop_event.set()
@@ -379,7 +380,8 @@ def serial_reader_thread():
                     if not channel_configs[channel]['enabled'].get():
                         continue
                     raw_val_str = line_parts[1]
-                    if raw_val_str == '........':
+                    if raw_val_str == '........': # Fluke's "over range" or invalid reading indicator
+                        print(f"Skipping '........' reading for Channel {channel}")
                         continue
                     try:
                         raw_val = float(raw_val_str)
@@ -388,6 +390,7 @@ def serial_reader_thread():
                         status_var.set(f"Data parsing error for Channel {channel}")
                         continue
                     unit = line_parts[2]
+                    # FIX: Robust timestamp parsing using dateutil.parser
                     timestamp_str = f"{line_parts[4]} {line_parts[3]}"
                     data_queue.put({'channel': channel, 'raw_val': raw_val, 'unit': unit, 'timestamp': timestamp_str})
                     status_var.set(f"Received data for Channel {channel}: {raw_val} {unit}")
@@ -411,7 +414,9 @@ def serial_reader_thread():
 
 def animate(frame):
     """Updates plots in real-time by processing data from the queue."""
-    global last_save_time, current_record
+    global last_save_time, current_record, current_stage, stage_entry_time, cycle_num
+
+    current_time = time.time() # FIX: Define current_time for cycle stage logic
 
     # Process data from the queue
     while not data_queue.empty():
@@ -419,16 +424,12 @@ def animate(frame):
         channel = data['channel']
         timestamp_str = data['timestamp']
         try:
-            timestamp = datetime.strptime(timestamp_str, '%d/%m/%Y %H:%M:%S')
-        except ValueError:
-            try:
-                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
-            except ValueError:
-                try:
-                    timestamp = parser.parse(timestamp_str)
-                except Exception as e:
-                    print(f"Failed to parse timestamp: {timestamp_str} — {e}")
-                    continue
+            # FIX: Use dateutil.parser for robust timestamp parsing
+            timestamp = parser.parse(timestamp_str)
+        except Exception as e:
+            print(f"Failed to parse timestamp: {timestamp_str} — {e}")
+            continue
+        
         unit = data['unit']
         raw_val = data['raw_val']
 
@@ -471,7 +472,7 @@ def animate(frame):
             latest_values[channel]['temp'] = f"{temp_chart:.4f} °C" if not math.isnan(temp_chart) else "N/A"
             current_record[timestamp_key]['channels'][channel] = {'emf': emf, 'temp_nist': temp_nist, 'temp_chart': temp_chart, 'difference': difference}
 
-            if channel == 3 and not math.isnan(temp_chart):
+            if channel == 3 and not math.isnan(temp_chart) and current_stage < len(cycle_stages): # Ensure current_stage is valid
                 target = cycle_stages[current_stage]
                 if abs(temp_chart - target) <= temp_tolerance:
                     if stage_entry_time is None:
@@ -487,8 +488,9 @@ def animate(frame):
                 else:
                     stage_entry_time = None
 
+        # FIX: Always append timestamp to plot_timestamps for consistent alignment
         if not plot_timestamps or timestamp > plot_timestamps[-1]:
-            plot_timestamps.append(timestamp)
+             plot_timestamps.append(timestamp)
 
     # Check for complete or timed-out records
     enabled_channels = [ch for ch in range(1, 5) if channel_configs[ch]['enabled'].get()]
@@ -554,42 +556,40 @@ def update_main_plot():
         unit_str = "Ω" if channel_configs[active_plot_channel]['type'] == 'RES' else "mV"
         ax.set_ylabel(f"Raw Value ({unit_str})")
     
+    # Ensure lines for the active_plot_channel are updated regardless of 'all channels' mode
     if plot_type == 'temp':
         if channel_configs[active_plot_channel]['type'] == 'RES':
             y_data = list(plot_data[active_plot_channel]['temp_prt'])
-            if len(y_data) > 0 and len(x_data) >= len(y_data):
-                x_data_subset = x_data[-len(y_data):]
-                lines[f'ch{active_plot_channel}_prt'].set_data(x_data_subset, y_data)
+            if len(y_data) > 0: # and len(x_data) >= len(y_data): # With deques, len(x_data) and len(y_data) should be consistent up to maxlen
+                lines[f'ch{active_plot_channel}_prt'].set_data(x_data[-len(y_data):], y_data)
                 lines[f'ch{active_plot_channel}_prt'].set_visible(True)
         elif channel_configs[active_plot_channel]['type'] == 'TC':
             y_data_nist = list(plot_data[active_plot_channel]['temp_nist'])
             y_data_chart = list(plot_data[active_plot_channel]['temp_chart'])
-            if len(y_data_nist) > 0 and len(x_data) >= len(y_data_nist):
-                x_data_subset = x_data[-len(y_data_nist):]
-                lines[f'ch{active_plot_channel}_nist'].set_data(x_data_subset, y_data_nist)
+            if len(y_data_nist) > 0: # and len(x_data) >= len(y_data_nist):
+                lines[f'ch{active_plot_channel}_nist'].set_data(x_data[-len(y_data_nist):], y_data_nist)
                 lines[f'ch{active_plot_channel}_nist'].set_visible(True)
-            if len(y_data_chart) > 0 and len(x_data) >= len(y_data_chart):
-                x_data_subset = x_data[-len(y_data_chart):]
-                lines[f'ch{active_plot_channel}_chart'].set_data(x_data_subset, y_data_chart)
+            if len(y_data_chart) > 0: # and len(x_data) >= len(y_data_chart):
+                lines[f'ch{active_plot_channel}_chart'].set_data(x_data[-len(y_data_chart):], y_data_chart)
                 lines[f'ch{active_plot_channel}_chart'].set_visible(True)
-    else:
+    else: # raw plot_type
         if channel_configs[active_plot_channel]['type'] == 'RES':
             y_data = list(plot_data[active_plot_channel]['resistance'])
-            if len(y_data) > 0 and len(x_data) >= len(y_data):
-                x_data_subset = x_data[-len(y_data):]
-                lines[f'ch{active_plot_channel}_prt'].set_data(x_data_subset, y_data)
+            if len(y_data) > 0: # and len(x_data) >= len(y_data):
+                lines[f'ch{active_plot_channel}_prt'].set_data(x_data[-len(y_data):], y_data)
                 lines[f'ch{active_plot_channel}_prt'].set_visible(True)
         elif channel_configs[active_plot_channel]['type'] == 'TC':
             y_data = list(plot_data[active_plot_channel]['emf'])
-            if len(y_data) > 0 and len(x_data) >= len(y_data):
-                x_data_subset = x_data[-len(y_data):]
-                lines[f'ch{active_plot_channel}_nist'].set_data(x_data_subset, y_data)
+            if len(y_data) > 0: # and len(x_data) >= len(y_data):
+                lines[f'ch{active_plot_channel}_nist'].set_data(x_data[-len(y_data):], y_data) # Using nist line for raw emf
                 lines[f'ch{active_plot_channel}_nist'].set_visible(True)
     
     if len(x_data) > 1:
         ax.set_xlim(x_data[0], x_data[-1])
-    else:
+    elif x_data: # If only one data point, set a small range around it
         ax.set_xlim(x_data[0] - pd.Timedelta(seconds=1), x_data[0] + pd.Timedelta(seconds=1))
+    # No else case needed, as x_data being empty is handled at the beginning of the function
+
     ax.legend(handles=[lines[key] for key in lines if lines[key].get_visible()])
     ax.relim()
     ax.autoscale_view(scaley=True)
@@ -605,11 +605,15 @@ def update_real_time_labels():
             labels['raw'].config(text="Disabled")
             labels['temp'].config(text="Disabled")
 
-def save_to_excel(records, cycle_num=None):
+def save_to_excel(records, cycle_num=None): # FIX: Ensure cycle_num is passed
     """Saves collected data records to an Excel file."""
     if not records:
         return
-    excel_file = os.path.join(save_dir_var.get(), f"cycle_{cycle_num or 1}.xlsx")
+    
+    # Use cycle_num from global if not provided (e.g., during stop_logging)
+    file_cycle_num = cycle_num if cycle_num is not None else globals().get('cycle_num', 1)
+
+    excel_file = os.path.join(save_dir_var.get(), f"cycle_{file_cycle_num}.xlsx")
     
     columns = ['Timestamp']
     for i in range(1, 5):
@@ -639,7 +643,7 @@ def save_to_excel(records, cycle_num=None):
 
 def start_logging():
     """Initializes and starts data logging."""
-    global new_records_buffer, plot_timestamps, plot_data, last_save_time, stop_event, data_queue, ani, current_record
+    global new_records_buffer, plot_timestamps, plot_data, last_save_time, stop_event, data_queue, ani, current_record, cycle_num, current_stage, stage_entry_time
     
     COM_PORT = com_port_var.get()
     if not COM_PORT:
@@ -678,6 +682,10 @@ def start_logging():
     last_save_time = time.time()
     stop_event.clear()
     data_queue = queue.Queue()
+    command_queue.queue.clear() # Clear any pending commands from previous runs
+    cycle_num = 1 # Reset cycle number on new start
+    current_stage = 0
+    stage_entry_time = None
 
     status_var.set("Starting serial connection...")
     serial_thread = threading.Thread(target=serial_reader_thread, daemon=True)
@@ -687,8 +695,8 @@ def start_logging():
     canvas.draw()
 
     start_button.config(state="disabled")
-    calibrate_button.config(state="normal")
     stop_button.config(state="normal")
+    calibrate_button.config(state="normal") # FIX: Enable calibrate button here
     for ch in range(1, 5):
         channel_buttons[ch].config(state="disabled" if not channel_configs[ch]['enabled'].get() else "normal")
     status_var.set("Logging started")
@@ -703,12 +711,12 @@ def stop_logging():
     
     start_button.config(state="normal")
     stop_button.config(state="disabled")
-    calibrate_button.config(state="normal")
+    calibrate_button.config(state="disabled") # FIX: Disable calibrate button on stop
     for ch in range(1, 5):
         channel_buttons[ch].config(state="normal")
     
     if new_records_buffer:
-        save_to_excel(new_records_buffer)
+        save_to_excel(new_records_buffer, globals().get('cycle_num', 1)) # FIX: Pass cycle_num
         new_records_buffer.clear()
     
     # Process any remaining partial records
@@ -736,9 +744,12 @@ def stop_logging():
                     record.extend([float('nan'), float('nan'), float('nan'), float('nan')])
         new_records_buffer.append(record)
         print(f"Processed final record for timestamp {timestamp_key}: {record}")
+    
     if new_records_buffer:
-        save_to_excel(new_records_buffer)
+        save_to_excel(new_records_buffer, globals().get('cycle_num', 1)) # FIX: Pass cycle_num
         new_records_buffer.clear()
+    
+    current_record.clear() # FIX: Clear current_record on stop
     
     if ser and ser.is_open:
         ser.close()
@@ -783,15 +794,17 @@ def send_unit_command(channel):
         status_var.set(f"Error: Invalid channel {channel}. Must be 1-4.")
         return
     unit = unit_vars[channel].get()
+    
+    # FIX: Update channel_configs immediately, regardless of serial connection
+    channel_configs[channel]['unit'] = unit
+    channel_configs[channel]['type'] = 'RES' if unit == 'O' else 'TC'
+
     if ser and ser.is_open:
         command_queue.put(f"UNIT:CHAN{channel} {unit}")
-        channel_configs[channel]['unit'] = unit
-        channel_configs[channel]['type'] = 'RES' if unit == 'O' else 'TC'
         status_var.set(f"Sent: Set Channel {channel} unit to {unit}. Internal type updated.")
     else:
         status_var.set("Not connected. Unit change will apply on next start.")
-        channel_configs[channel]['unit'] = unit
-        channel_configs[channel]['type'] = 'RES' if unit == 'O' else 'TC'
+        # Type is already updated above
 
 def set_active_channel(channel):
     """Sets the active channel for the main plot and redraws."""
@@ -799,6 +812,8 @@ def set_active_channel(channel):
     if channel_configs[channel]['enabled'].get():
         active_plot_channel = channel
         update_main_plot()
+    else:
+        status_var.set(f"Channel {channel} is disabled. Cannot set as active plot channel.")
 
 def set_plot_type(ptype):
     """Sets the plot type ('raw' or 'temp') for the main plot and redraws."""
@@ -809,8 +824,8 @@ def set_plot_type(ptype):
 def show_all_channels():
     """Displays all enabled channels' temperature data on the main plot."""
     global plot_type
-    plot_type = 'temp'
-    
+    plot_type = 'temp' # Force temperature view for 'all channels'
+
     x_data = list(plot_timestamps)
     if not x_data:
         ax.set_xlim(datetime.now() - pd.Timedelta(minutes=1), datetime.now())
@@ -822,33 +837,33 @@ def show_all_channels():
     ax.set_ylabel("Temperature (°C)")
 
     for key in lines:
-        lines[key].set_visible(False)
+        lines[key].set_visible(False) # Hide all lines initially
 
+    # FIX: Iterate through all channels and make visible only if enabled and have data
     for ch in range(1, 5):
         if channel_configs[ch]['enabled'].get():
             if channel_configs[ch]['type'] == 'RES':
                 y_data = list(plot_data[ch]['temp_prt'])
-                if len(y_data) > 0 and len(x_data) >= len(y_data):
-                    x_data_subset = x_data[-len(y_data):]
-                    lines[f'ch{ch}_prt'].set_data(x_data_subset, y_data)
+                if len(y_data) > 0:
+                    lines[f'ch{ch}_prt'].set_data(x_data[-len(y_data):], y_data)
                     lines[f'ch{ch}_prt'].set_visible(True)
             elif channel_configs[ch]['type'] == 'TC':
                 y_data_nist = list(plot_data[ch]['temp_nist'])
                 y_data_chart = list(plot_data[ch]['temp_chart'])
-                if len(y_data_nist) > 0 and len(x_data) >= len(y_data_nist):
-                    x_data_subset = x_data[-len(y_data_nist):]
-                    lines[f'ch{ch}_nist'].set_data(x_data_subset, y_data_nist)
+                if len(y_data_nist) > 0:
+                    lines[f'ch{ch}_nist'].set_data(x_data[-len(y_data_nist):], y_data_nist)
                     lines[f'ch{ch}_nist'].set_visible(True)
-                if len(y_data_chart) > 0 and len(x_data) >= len(y_data_chart):
-                    x_data_subset = x_data[-len(y_data_chart):]
-                    lines[f'ch{ch}_chart'].set_data(x_data_subset, y_data_chart)
+                if len(y_data_chart) > 0:
+                    lines[f'ch{ch}_chart'].set_data(x_data[-len(y_data_chart):], y_data_chart)
                     lines[f'ch{ch}_chart'].set_visible(True)
     
     if len(x_data) > 1:
         ax.set_xlim(x_data[0], x_data[-1])
-    else:
+    elif x_data:
         ax.set_xlim(x_data[0] - pd.Timedelta(seconds=1), x_data[0] + pd.Timedelta(seconds=1))
-    ax.legend(handles=[lines[key] for key in lines if lines[key].get_visible()])
+
+    # FIX: Update legend to only show visible lines
+    ax.legend(handles=[lines[key] for key in lines if lines[key].get_visible()], loc='best')
     ax.relim()
     ax.autoscale_view(scaley=True)
     fig.canvas.draw_idle()
@@ -890,9 +905,12 @@ def toggle_separate_window(channel):
             window_axes[channel] = ax_ch
             separate_windows[channel] = True
             
-            update_separate_window(channel)
+            # Initial update for the new window
+            update_separate_window(channel) 
     else:
         close_separate_window_callback(channel)
+        if not channel_configs[channel]['enabled'].get():
+            messagebox.showinfo("Info", f"Channel {channel} is disabled. Cannot open separate plot.")
 
 def update_separate_window(channel):
     """Updates the content of a specific separate plot window."""
@@ -919,40 +937,36 @@ def update_separate_window(channel):
         if plot_type == 'temp':
             if channel_configs[channel]['type'] == 'RES':
                 y_data = list(plot_data[channel]['temp_prt'])
-                if len(y_data) > 0 and len(x_data) >= len(y_data):
-                    x_data_subset = x_data[-len(y_data):]
-                    window_lines[channel]['prt'].set_data(x_data_subset, y_data)
+                if len(y_data) > 0:
+                    window_lines[channel]['prt'].set_data(x_data[-len(y_data):], y_data)
                     window_lines[channel]['prt'].set_visible(True)
             elif channel_configs[channel]['type'] == 'TC':
                 y_data_nist = list(plot_data[channel]['temp_nist'])
                 y_data_chart = list(plot_data[channel]['temp_chart'])
-                if len(y_data_nist) > 0 and len(x_data) >= len(y_data_nist):
-                    x_data_subset = x_data[-len(y_data_nist):]
-                    window_lines[channel]['nist'].set_data(x_data_subset, y_data_nist)
+                if len(y_data_nist) > 0:
+                    window_lines[channel]['nist'].set_data(x_data[-len(y_data_nist):], y_data_nist)
                     window_lines[channel]['nist'].set_visible(True)
-                if len(y_data_chart) > 0 and len(x_data) >= len(y_data_chart):
-                    x_data_subset = x_data[-len(y_data_chart):]
-                    window_lines[channel]['chart'].set_data(x_data_subset, y_data_chart)
+                if len(y_data_chart) > 0:
+                    window_lines[channel]['chart'].set_data(x_data[-len(y_data_chart):], y_data_chart)
                     window_lines[channel]['chart'].set_visible(True)
-        else:
+        else: # raw plot_type
             if channel_configs[channel]['type'] == 'RES':
                 y_data = list(plot_data[channel]['resistance'])
-                if len(y_data) > 0 and len(x_data) >= len(y_data):
-                    x_data_subset = x_data[-len(y_data):]
-                    window_lines[channel]['prt'].set_data(x_data_subset, y_data)
+                if len(y_data) > 0:
+                    window_lines[channel]['prt'].set_data(x_data[-len(y_data):], y_data)
                     window_lines[channel]['prt'].set_visible(True)
             elif channel_configs[channel]['type'] == 'TC':
                 y_data = list(plot_data[channel]['emf'])
-                if len(y_data) > 0 and len(x_data) >= len(y_data):
-                    x_data_subset = x_data[-len(y_data):]
-                    window_lines[channel]['nist'].set_data(x_data_subset, y_data)
+                if len(y_data) > 0:
+                    window_lines[channel]['nist'].set_data(x_data[-len(y_data):], y_data) # Using nist line for raw emf
                     window_lines[channel]['nist'].set_visible(True)
 
         if len(x_data) > 1:
             ax_ch.set_xlim(x_data[0], x_data[-1])
-        else:
+        elif x_data:
             ax_ch.set_xlim(x_data[0] - pd.Timedelta(seconds=1), x_data[0] + pd.Timedelta(seconds=1))
-        ax_ch.legend(handles=[window_lines[channel][key] for key in window_lines[channel] if window_lines[channel][key].get_visible()])
+
+        ax_ch.legend(handles=[window_lines[channel][key] for key in window_lines[channel] if window_lines[channel][key].get_visible()], loc='best')
         ax_ch.relim()
         ax_ch.autoscale_view(scaley=True)
         window_canvases[channel].draw_idle()
