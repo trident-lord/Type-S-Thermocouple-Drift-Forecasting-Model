@@ -87,58 +87,156 @@ def emf_to_temperature_nist(emf_mV: float) -> float | str:
     return float('nan')
 
 # --- Type S Thermocouple Conversion - Custom Chart Interpolation ---
-def convert_emf_to_temp_table_interpolation(measured_emf_mv: float) -> float | str:
+def convert_emf_to_temp_table_interpolation_Channel_3_New(measured_emf_mv: float) -> float | str:
     """
-    Converts EMF (mV) to Temperature (°C) using linear interpolation from Type S calibration table.
+    Method 2: Converts EMF (mV) to Temperature (°C) using linear interpolation
+    from the specific Type S thermocouple calibration table provided in the certificate.
+    This table uses the 'EMF (µV)' column from your 'Type S 2.jpg' and 'Type S 3.jpg',
+    with values converted to millivolts for consistency.
+
+    Args:
+        measured_emf_mv (float): The measured EMF in millivolts (mV).
+
+    Returns:
+        float | str: The interpolated temperature in degrees Celsius (°C),
+                     or a warning/error message if the EMF is outside the table range.
     """
+    # Format: (EMF in mV, Temperature in °C)
     calibration_data = [
-        (0.00000, 0), (0.05514, 10), (0.11266, 20), (0.17244, 30), (0.23436, 40),
-        (0.29829, 50), (0.36414, 60), (0.43179, 70), (0.50115, 80), (0.57214, 90),
-        (0.64466, 100), (0.71863, 110), (0.79397, 120), (0.87062, 130), (0.94850, 140),
-        (1.02755, 150), (1.10771, 160), (1.18891, 170), (1.27112, 180), (1.35427, 190),
-        (1.43831, 200), (1.52321, 210), (1.60892, 220), (1.69540, 230), (1.78261, 240),
-        (1.87051, 250), (1.95908, 260), (2.04828, 270), (2.13809, 280), (2.22847, 290),
-        (2.31941, 300), (2.41087, 310), (2.50283, 320), (2.59528, 330), (2.68820, 340),
-        (2.78157, 350), (2.87537, 360), (2.96958, 370), (3.06420, 380), (3.15921, 390),
-        (3.25460, 400), (3.35035, 410), (3.44647, 420), (3.54293, 430), (3.63974, 440),
-        (3.73688, 450), (3.83436, 460), (3.93215, 470), (4.03027, 480), (4.12871, 490),
-        (4.22745, 500), (4.32651, 510), (4.42587, 520), (4.52554, 530), (4.62552, 540),
-        (4.72581, 550), (4.82639, 560), (4.92729, 570), (5.02849, 580), (5.12999, 590),
-        (5.23181, 600), (5.33394, 610), (5.43637, 620), (5.53913, 630), (5.64219, 640),
-        (5.74558, 650), (5.84929, 660), (5.95332, 670), (6.05767, 680), (6.16236, 690),
-        (6.26737, 700), (6.37272, 710), (6.47840, 720), (6.58442, 730), (6.69078, 740),
-        (6.79748, 750), (6.90453, 760), (7.01192, 770), (7.11965, 780), (7.22773, 790),
-        (7.33616, 800), (7.44493, 810), (7.55406, 820), (7.66353, 830), (7.77335, 840),
-        (7.88352, 850), (7.99403, 860), (8.10489, 870), (8.21609, 880), (8.32763, 890),
-        (8.43951, 900), (8.55173, 910), (8.66429, 920), (8.77718, 930), (8.89039, 940),
-        (9.00394, 950), (9.11781, 960), (9.23201, 970), (9.34652, 980), (9.46136, 990),
-        (9.57651, 1000), (9.69197, 1010), (9.80776, 1020), (9.92385, 1030), (10.04027, 1040),
-        (10.15700, 1050), (10.27406, 1060), (10.39143, 1070), (10.50907, 1080), (10.62698, 1090),
-        (10.74513, 1100), (10.86353, 1110), (10.98215, 1120), (11.10100, 1130), (11.22006, 1140),
-        (11.33932, 1150), (11.45877, 1160), (11.57841, 1170), (11.69822, 1180), (11.81820, 1190),
-        (11.938, 1200)
+        (0.00000, 0), (0.05518, 10), (0.11275, 20), (0.17258, 30), (0.23454, 40),
+        (0.29852, 50), (0.36442, 60), (0.43213, 70), (0.50155, 80), (0.57259, 90),
+        (0.64517, 100), (0.71920, 110), (0.79461, 120), (0.87132, 130), (0.94927, 140),
+        (1.02840, 150), (1.10863, 160), (1.18991, 170), (1.27219, 180), (1.35542, 190),
+        (1.43955, 200), (1.52453, 210), (1.61032, 220), (1.69689, 230), (1.78419, 240),
+        (1.87218, 250), (1.96085, 260), (2.05014, 270), (2.14005, 280), (2.23053, 290),
+        (2.32157, 300), (2.41313, 310), (2.50521, 320), (2.59777, 330), (2.69079, 340),
+        (2.78427, 350), (2.87819, 360), (2.97252, 370), (3.06725, 380), (3.16238, 390),
+        (3.25790, 400), (3.35378, 410), (3.45002, 420), (3.54661, 430), (3.64355, 440),
+        (3.74083, 450), (3.83844, 460), (3.93638, 470), (4.03463, 480), (4.13321, 490),
+        (4.23210, 500), (4.33130, 510), (4.43082, 520), (4.53064, 530), (4.63077, 540),
+        (4.73121, 550), (4.83195, 560), (4.93300, 570), (5.03436, 580), (5.13603, 590),
+        (5.23802, 600), (5.34031, 610), (5.44292, 620), (5.54584, 630), (5.64908, 640),
+        (5.75264, 650), (5.85653, 660), (5.96074, 670), (6.06528, 680), (6.17014, 690),
+        (6.27534, 700), (6.38088, 710), (6.48675, 720), (6.59297, 730), (6.69952, 740),
+        (6.80642, 750), (6.91366, 760), (7.02125, 770), (7.12919, 780), (7.23747, 790),
+        (7.34611, 800), (7.45509, 810), (7.56443, 820), (7.67411, 830), (7.778415, 840),
+        (7.89453, 850), (8.00526, 860), (8.11634, 870), (8.22777, 880), (8.33953, 890),
+        (8.45164, 900), (8.56409, 910), (8.67688, 920), (8.79000, 930), (8.90346, 940),
+        (9.01724, 950), (9.13135, 960), (9.24579, 970), (9.36055, 980), (9.47563, 990),
+        (9.59103, 1000), (9.70675, 1010), (9.82278, 1020), (9.93914, 1030), (10.05581, 1040),
+        (10.17280, 1050), (10.29012, 1060), (10.40775, 1070), (10.52566, 1080), (10.64383, 1090),
+        (10.76225, 1100), (10.88090, 1110), (10.99979, 1120), (11.11890, 1130), (11.23822, 1140),
+        (11.35775, 1150), (11.47747, 1160), (11.59737, 1170), (11.71744, 1180), (11.83768, 1190),
+        (11.95807, 1200)
     ]
 
     min_emf = calibration_data[0][0]
     max_emf = calibration_data[-1][0]
 
-    if measured_emf_mv < min_emf - 1e-6:
+    # Handle out-of-range EMF values
+    if measured_emf_mv < min_emf:
+        # Extrapolate using the first segment for values below min_emf
         emf1, temp1 = calibration_data[0]
         emf2, temp2 = calibration_data[1]
-        if (emf2 - emf1) == 0: return temp1 
+        if (emf2 - emf1) == 0: return temp1 # Avoid div by zero
         return temp1 + (measured_emf_mv - emf1) * (temp2 - temp1) / (emf2 - emf1)
     
-    if measured_emf_mv > max_emf + 1e-6:
+    if measured_emf_mv > max_emf:
+        # Extrapolate using the last segment for values above max_emf
         emf1, temp1 = calibration_data[-2]
         emf2, temp2 = calibration_data[-1]
-        if (emf2 - emf1) == 0: return temp1 
+        if (emf2 - emf1) == 0: return temp1 # Avoid div by zero
         return temp1 + (measured_emf_mv - emf1) * (temp2 - temp1) / (emf2 - emf1)
 
+    # Perform linear interpolation for values within the table range
     for i in range(len(calibration_data) - 1):
         emf1, temp1 = calibration_data[i]
-        emf2, temp2 = calibration_data[i + 1]
+        emf2, temp2 = calibration_data[i+1]
+
         if emf1 <= measured_emf_mv <= emf2:
-            if (emf2 - emf1) == 0: 
+            if (emf2 - emf1) == 0: # Avoid division by zero
+                return temp1
+            return temp1 + (measured_emf_mv - emf1) * (temp2 - temp1) / (emf2 - emf1)
+            
+    return float('nan')
+
+
+def convert_emf_to_temp_table_interpolation_Channel_4_Used(measured_emf_mv: float) -> float | str:
+    """
+    Method 2: Converts EMF (mV) to Temperature (°C) using linear interpolation
+    from the specific Type S thermocouple calibration table provided in the certificate.
+    This table uses the 'EMF (µV)' column from your 'Type S 2.jpg' and 'Type S 3.jpg',
+    with values converted to millivolts for consistency.
+
+    Args:
+        measured_emf_mv (float): The measured EMF in millivolts (mV).
+
+    Returns:
+        float | str: The interpolated temperature in degrees Celsius (°C),
+                     or a warning/error message if the EMF is outside the table range.
+    """
+    # Format: (EMF in mV, Temperature in °C)
+    calibration_data = [
+    (0.00000, 0), (0.05508, 10), (0.11255, 20), (0.17227, 30), (0.23413, 40), 
+    (0.29801, 50), (0.36379, 60), (0.43139, 70), (0.50070, 80), (0.57162, 90), 
+    (0.64409, 100), (0.71800, 110), (0.79329, 120), (0.86987, 130), (0.94770, 140), 
+    (1.02669, 150), (1.10679, 160), (1.18794, 170), (1.27009, 180), (1.35318, 190), 
+    (1.43716, 200), (1.52200, 210), (1.60765, 220), (1.69407, 230), (1.78122, 240), 
+    (1.86907, 250), (1.95758, 260), (2.04673, 270), (2.13647, 280), (2.22680, 290), 
+    (2.31767, 300), (2.40907, 310), (2.50098, 320), (2.59337, 330), (2.68623, 340), 
+    (2.77954, 350), (2.87328, 360), (2.96743, 370), (3.06199, 380), (3.15694, 390), 
+    (3.25227, 400), (3.34797, 410), (3.44402, 420), (3.54043, 430), (3.63718, 440), 
+    (3.73426, 450), (3.83167, 460), (3.92941, 470), (4.02747, 480), (4.12584, 490), 
+    (4.22453, 500), (4.32352, 510), (4.42283, 520), (4.52244, 530), (4.62236, 540), 
+    (4.72258, 550), (4.82311, 560), (4.92394, 570), (5.02508, 580), (5.12653, 590), 
+    (5.22828, 600), (5.33035, 610), (5.43272, 620), (5.53541, 630), (5.63842, 640), 
+    (5.74175, 650), (5.84539, 660), (5.94936, 670), (6.05366, 680), (6.15828, 690), 
+    (6.26323, 700), (6.36852, 710), (6.47414, 720), (6.58010, 730), (6.68640, 740), 
+    (6.79304, 750), (6.90002, 760), (7.00734, 770), (7.11502, 780), (7.22303, 790), 
+    (7.33140, 800), (7.44011, 810), (7.54918, 820), (7.65859, 830), (7.76834, 840), 
+    (7.87845, 850), (7.98890, 860), (8.09969, 870), (8.21083, 880), (8.32231, 890), 
+    (8.43413, 900), (8.54629, 910), (8.65878, 920), (8.77160, 930), (8.88476, 940), 
+    (8.99824, 950), (9.11205, 960), (9.22618, 970), (9.34063, 980), (9.45540, 990), 
+    (9.57049, 1000), (9.68590, 1010), (9.80161, 1020), (9.91765, 1030), (10.03400, 1040), 
+    (10.15067, 1050), (10.26766, 1060), (10.38497, 1070), (10.50255, 1080), (10.62039, 1090), 
+    (10.73848, 1100), (10.85681, 1110), (10.97537, 1120), (11.09416, 1130), (11.21315, 1140), 
+    (11.33235, 1150), (11.45174, 1160), (11.57131, 1170), (11.69106, 1180), (11.81097, 1190), 
+    (11.93103, 1200), (12.05124, 1210), (12.17159, 1220), (12.29206, 1230), (12.41265, 1240), 
+    (12.53335, 1250), (12.65414, 1260), (12.77502, 1270), (12.89598, 1280), (13.01701, 1290), 
+    (13.13810, 1300), (13.25924, 1310), (13.38042, 1320), (13.50163, 1330), (13.62286, 1340), 
+    (13.74411, 1350), (13.86535, 1360), (13.98659, 1370), (14.10782, 1380), (14.22902, 1390), 
+    (14.35018, 1400), (14.47130, 1410), (14.59236, 1420), (14.71336, 1430), (14.83429, 1440), 
+    (14.95514, 1450), (15.07589, 1460), (15.19654, 1470), (15.31709, 1480), (15.43751, 1490), 
+    (15.55780, 1500), (15.67795, 1510), (15.79796, 1520), (15.91780, 1530), (16.03748, 1540), 
+    (16.15699, 1550), (16.27630, 1560), (16.39543, 1570), (16.51434, 1580), (16.63304, 1590), 
+    (16.75152, 1600)
+]
+
+    min_emf = calibration_data[0][0]
+    max_emf = calibration_data[-1][0]
+
+    # Handle out-of-range EMF values
+    if measured_emf_mv < min_emf:
+        # Extrapolate using the first segment for values below min_emf
+        emf1, temp1 = calibration_data[0]
+        emf2, temp2 = calibration_data[1]
+        if (emf2 - emf1) == 0: return temp1 # Avoid div by zero
+        return temp1 + (measured_emf_mv - emf1) * (temp2 - temp1) / (emf2 - emf1)
+    
+    if measured_emf_mv > max_emf:
+        # Extrapolate using the last segment for values above max_emf
+        emf1, temp1 = calibration_data[-2]
+        emf2, temp2 = calibration_data[-1]
+        if (emf2 - emf1) == 0: return temp1 # Avoid div by zero
+        return temp1 + (measured_emf_mv - emf1) * (temp2 - temp1) / (emf2 - emf1)
+
+    # Perform linear interpolation for values within the table range
+    for i in range(len(calibration_data) - 1):
+        emf1, temp1 = calibration_data[i]
+        emf2, temp2 = calibration_data[i+1]
+
+        if emf1 <= measured_emf_mv <= emf2:
+            if (emf2 - emf1) == 0: # Avoid division by zero
                 return temp1
             return temp1 + (measured_emf_mv - emf1) * (temp2 - temp1) / (emf2 - emf1)
             
@@ -162,7 +260,7 @@ TIMESTAMP_TIMEOUT = 2  # Timeout in seconds for grouping channel data by timesta
 cycle_stages = [600, 900, 1200, 900, 600]
 current_stage = 0
 temp_tolerance = 0.5  # ±0.5°C tolerance window
-min_hold_time = 180  # seconds the temp must stay in window
+min_hold_time = 90  # seconds the temp must stay in window
 stage_entry_time = None
 cycle_num = 1
 
@@ -460,7 +558,10 @@ def animate(frame):
                 temp_nist = float('nan')
                 print(f"TC NIST conversion error for Ch{channel}: {e}")
             try:
-                temp_chart = convert_emf_to_temp_table_interpolation(emf)
+                if channel == 3:
+                    temp_chart = convert_emf_to_temp_table_interpolation_Channel_3_New(emf)
+                elif channel == 4:
+                    temp_chart = convert_emf_to_temp_table_interpolation_Channel_4_Used(emf)
             except ValueError as e:
                 temp_chart = float('nan')
                 print(f"TC Chart conversion error for Ch{channel}: {e}")
@@ -900,7 +1001,7 @@ def toggle_separate_window(channel):
             toolbar_ch.update()
             toolbar_ch.pack(side="bottom", fill="x")
             
-            window_figures[channel] = fig_ch
+            window_figures[channel] = window
             window_canvases[channel] = canvas_ch
             window_axes[channel] = ax_ch
             separate_windows[channel] = True
@@ -974,7 +1075,7 @@ def update_separate_window(channel):
 def close_separate_window_callback(channel):
     """Callback function for when a separate window is closed by the user."""
     if window_figures[channel]:
-        window_figures[channel].get_tk_widget().master.destroy()
+        window_figures[channel].destroy()
         window_figures[channel] = None
         window_canvases[channel] = None
         window_axes[channel] = None
